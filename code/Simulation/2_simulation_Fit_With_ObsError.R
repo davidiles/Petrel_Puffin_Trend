@@ -1,5 +1,9 @@
-
-my_packs = c('tidyverse','readxl','RColorBrewer','viridis','jagsUI','mgcv','ggrepel','scales','ggthemes')
+my_packs = c('tidyverse',
+             'jagsUI',
+             'mgcv',
+             'scales',
+             'ggthemes',
+             'faux')
 
 if (any(!my_packs %in% installed.packages()[, 'Package'])) {install.packages(my_packs[which(!my_packs %in% installed.packages()[, 'Package'])],dependencies = TRUE)}
 lapply(my_packs, require, character.only = TRUE)
@@ -61,292 +65,293 @@ CustomTheme <- theme_update(legend.key = element_rect(colour = NA),
 # Part 1: Simulate an entire 50-year time series for each of 9 colonies
 # ----------------------------------------------------------
 
-trend_results <- data.frame()
+simulation_results <- data.frame()
 
-for (run in 1:1000){
+for (run in (1:500)){
   
-  if (run %in% trend_results$run) next
-  
-  set.seed(run)
-  
-  ncolony <- 9
-  nyears <- 50
-  
-  N_matrix <- matrix(NA,nrow=ncolony,ncol = nyears)
-  
-  # Initial abundance
-  N_matrix[,1] <- rlnorm(ncolony, meanlog = log(10000), sdlog = 0.5) %>% sort()
-  
-  # Set a colony-specific variance in annual growth rates
-  process_sd = runif(ncolony,0,0.3)
-  
-  # Simulate trajectories at each colony
-  for (i in 1:ncolony){
+  # How variable is the "shared" component of environmental variation?
+  for (sd_shared in c(0,0.1)){
     
-    # ----------------------------------------------------------
-    # Code to generate log-linear trajectories
-    # ----------------------------------------------------------
-    # 
-    # trend <- rnorm(1,0,0.03)
-    # 
-    # # Generate a random trajectory at the colony (random walk)
-    # for (t in 2:nyears) N_matrix[i,t] <- exp(log(N_matrix[i,t-1]) + trend)
-    # 
-    # ----------------------------------------------------------
-    # Code to generate complex random walks, where some colonies 'switch' their average tendency part way through the simulation
-    # ----------------------------------------------------------
+    set.seed(run)
     
-    # switch dynamics for some colonies (adds complexity to population dynamics)
-    switch = sample(0:1,1)
+    # Load results that have completed so far
+    if (file.exists("simulation_results.rds")) simulation_results <- readRDS("simulation_results.rds")
     
-    r_mean = runif(1,-0.02,0.01)
-    r_switch <- runif(1,-0.1,0.05)
+    # Skip this iteration, if it has already been run
+    if (nrow(simulation_results) > 0 & sum(simulation_results$run == run & simulation_results$sd_shared == sd_shared)) next
     
-    # Generate a random trajectory at the colony (random walk)
-    for (t in 2:nyears){
-      N_matrix[i,t] <- exp(log(N_matrix[i,t-1]) + rnorm(1,mean=r_mean, sd = process_sd[i]))
-      if (switch == 1 & (t > nyears/2))N_matrix[i,t] <- exp(log(N_matrix[i,t-1]) + rnorm(1,mean=r_mean+r_switch, sd = process_sd[i]))
+    ncolony <- 9
+    nyears <- 50
+    
+    # Time-varying environmental covariate
+    env_shared <- cumsum(rnorm(nyears,0,sd_shared))
+
+    N_matrix <- matrix(NA,nrow=ncolony,ncol = nyears)
+    
+    # Initial abundance of each colony
+    N_matrix[,1] <- rlnorm(ncolony, meanlog = log(10000), sdlog = 0.5) %>% sort()
+    
+    # Simulate trajectories at each colony
+    for (i in 1:ncolony){
+      
+      env_unshared <- cumsum(rnorm(nyears,0,0.1))
+      
+      # Generate a random trajectory at the colony (random walk)
+      for (t in 2:nyears){
+        N_matrix[i,t] <- exp(log(N_matrix[i,1]) + env_shared[t] + env_unshared[t] + rnorm(1,0,0.1))
+      }
     }
     
-  }
-  
-  # Convert to dataframe (to plot with ggplot)
-  N_df <- reshape2::melt(N_matrix) %>% 
-    rename(Colony = Var1,Year=Var2,N=value)
-  
-  # Plot dynamics (on log10 scale)
-  ggplot()+
-    geom_line(aes(x = 1:nyears, y = colSums(N_matrix), col = "Regional Sum"),linewidth = 1)+
-    geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
-    theme_few()+
-    scale_y_continuous(labels = comma, trans = "log10")+
-    scale_color_manual(values = c(brewer.pal(ncolony,"Spectral"),"black"), name = "Colony")+
-    ggtitle("Simulated trajectories at each of 9 colonies")+
-    ylab("Abundance")+
-    xlab("Year")
-  
-  ggplot()+
-    geom_line(aes(x = 1:nyears, y = colSums(N_matrix), col = "Regional Sum"),linewidth = 1)+
-    #geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
-    theme_few()+
-    scale_y_continuous(labels = comma, trans = "log10")+
-    #scale_color_manual(values = c(brewer.pal(ncolony,"Spectral"),"black"), name = "Colony")+
-    ggtitle("Simulated trajectories at each of 9 colonies")+
-    ylab("Abundance")+
-    xlab("Year")
-  
-  # ----------------------------------------------------------
-  # Part 2: Simulate intermittent surveys (3-5 surveys at each colony)
-  # ----------------------------------------------------------
-  
-  N_df$SurveyCount <- N_df$lambda_obs <- N_df$log_observation_SE <- NA
-  
-  for (i in 1:ncolony){
+    # Convert to dataframe (to plot with ggplot)
+    N_df <- reshape2::melt(N_matrix) %>% 
+      rename(Colony = Var1,Year=Var2,N=value)
     
-    # Rows in N_df corresponding to observations at this colony
-    colony_rows <- which(N_df$Colony == i)
+    # Plot dynamics (on log10 scale)
+    ggplot()+
+      geom_line(aes(x = 1:nyears, y = colSums(N_matrix), col = "Regional Sum"),linewidth = 1)+
+      geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
+      theme_few()+
+      scale_y_continuous(labels = comma, trans = "log10")+
+      scale_color_manual(values = c(brewer.pal(ncolony,"Spectral"),"black"), name = "Colony")+
+      ggtitle("Simulated trajectories at each of 9 colonies")+
+      ylab("Abundance")+
+      xlab("Year")
     
-    # Range of survey error at this colony among years (some years are worse than others)
-    colony_obs_SE_lower <- 0.05 # observation SE is at least 0.05 (log scale)
-    colony_obs_SE_upper <- runif(1,0.3,0.5) # in some years, obs SE is anywhere from 0.3 to 0.5
+    ggplot()+
+      geom_line(aes(x = 1:nyears, y = colSums(N_matrix), col = "Regional Sum"),linewidth = 1)+
+      #geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
+      theme_few()+
+      scale_y_continuous(labels = comma, trans = "log10")+
+      #scale_color_manual(values = c(brewer.pal(ncolony,"Spectral"),"black"), name = "Colony")+
+      ggtitle("Simulated trajectories at each of 9 colonies")+
+      ylab("Abundance")+
+      xlab("Year")
+    
+    # ----------------------------------------------------------
+    # Part 2: Simulate intermittent surveys (3-5 surveys at each colony)
+    # ----------------------------------------------------------
+    
+    intercept_SE = -0.95
+    slope_SE = 0.86
+    sd_SE = 0.45
     
     # Magnitude of observation error varies among surveys
-    N_df$log_observation_SE[colony_rows] <- runif(length(colony_rows), colony_obs_SE_lower,colony_obs_SE_upper)
-    
-    N_df$lambda_obs[colony_rows] <- rlnorm(length(colony_rows), meanlog = log(N_df$N)[colony_rows], sdlog = N_df$log_observation_SE[colony_rows])
+    N_df$survey_SE <- rlnorm(nrow(N_df),intercept_SE + slope_SE * log(N_df$N),sd_SE)
+    N_df$lambda_obs <- rnorm(nrow(N_df), N_df$N, N_df$survey_SE)
+    N_df$lambda_obs[N_df$lambda_obs <0] <- 0
     
     # -------------------------------
     # Which surveys were actually conducted?
     # -------------------------------
+    N_df$SurveyCount <-  NA
     
-    survey_years <- c()
+    for (i in 1:ncolony){
+      
+      # Rows in N_df corresponding to observations at this colony
+      colony_rows <- which(N_df$Colony == i)
+      
+      survey_years <- c()
+      
+      # Simulate one count in first 5 years of surveys
+      survey_years <- c(survey_years, sample(1:5,1))
+      
+      # Simulate one count in final 5 years of surveys
+      survey_years <- c(survey_years, sample(nyears:(nyears-5),1))
+      
+      # Simulate 2-4 additional surveys
+      survey_years <- c(survey_years, sample(6:(nyears-6),sample(2:4,1)))
+      
+      # Poisson observations
+      N_df$SurveyCount[(N_df$Colony == i) & 
+                         (N_df$Year %in% survey_years)] <- rpois(n = length(survey_years), 
+                                                                 lambda = N_df$lambda_obs[(N_df$Colony == i) & (N_df$Year %in% survey_years)])
+      
+    }
     
-    # Simulate one count in first 10 years of surveys
-    survey_years <- c(survey_years, sample(1:10,1))
+    # Omit 35% of standard errors to mimick missing information in empirical data
+    SEs_to_drop <- sample(1:nrow(N_df), size = round(0.35*nrow(N_df)))
+    N_df$survey_SE[SEs_to_drop] <- NA
     
-    # Simulate one count in final 10 years of surveys
-    survey_years <- c(survey_years, sample(nyears:(nyears-10),1))
+    # Confidence intervals on counts
+    N_df$SurveyCount_lci <- N_df$SurveyCount - 1.96*N_df$survey_SE
+    N_df$SurveyCount_uci <- N_df$SurveyCount + 1.96*N_df$survey_SE
     
-    # Simulate 0-4 additional surveys
-    survey_years <- c(survey_years, sample(11:(nyears-11),sample(3:5,1)))
+    # Plot survey counts at each of the colonies
+    ggplot()+
+      geom_line(data = N_df, aes(x = Year, y = N), col = "gray80")+
+      geom_errorbar(data = N_df, aes(x = Year, ymin = SurveyCount_lci, ymax = SurveyCount_uci), col = "black", width = 0)+
+      geom_point(data = N_df, aes(x = Year, y = SurveyCount), col = "black")+
+      geom_point(data = subset(N_df, is.na(survey_SE)), aes(x = Year, y = SurveyCount), col = "black", pch = 1, size =5)+
+      
+      theme_few()+
+      facet_wrap(Colony~., scales = "free_y")+
+      scale_y_continuous(labels = comma)+
+      ggtitle("Simulated surveys at colonies")
     
-    # Poisson observations
-    N_df$SurveyCount[(N_df$Colony == i) & 
-                       (N_df$Year %in% survey_years)] <- rpois(n = length(survey_years), 
-                                                               lambda = N_df$lambda_obs[(N_df$Colony == i) & (N_df$Year %in% survey_years)])
+    # ----------------------------------------------------------
+    # Part 3: Fit model to simulated survey data
+    # ----------------------------------------------------------
     
-  }
-  
-  # Confidence intervals on counts
-  N_df$SurveyCount_lci <- exp(log(N_df$SurveyCount) - 1.96*N_df$log_observation_SE)
-  N_df$SurveyCount_uci <- exp(log(N_df$SurveyCount) + 1.96*N_df$log_observation_SE)
-  
-  # Plot survey counts at each of the colonies
-  ggplot()+
-    geom_line(data = N_df, aes(x = Year, y = N), col = "gray80")+
-    geom_errorbar(data = N_df, aes(x = Year, ymin = SurveyCount_lci, ymax = SurveyCount_uci), col = "black", width = 0)+
-    geom_point(data = N_df, aes(x = Year, y = SurveyCount), col = "black")+
+    spdat <- N_df %>% subset(!is.na(SurveyCount)) %>% dplyr::select(Colony,Year,SurveyCount,survey_SE)
     
-    theme_few()+
-    facet_wrap(Colony~., scales = "free_y")+
-    scale_y_continuous(labels = comma)+
-    ggtitle("Simulated surveys at colonies")
-  
-  # ----------------------------------------------------------
-  # Part 3: Fit model to simulated survey data
-  # ----------------------------------------------------------
-  
-  spdat <- na.omit(N_df) %>% dplyr::select(Colony,Year,SurveyCount,log_observation_SE)
-  
-  # Data for import into jags
-  nknots = 4
-  year <- spdat$Year
-  ymax <- nyears
-  colony = spdat$Colony
-  count <- spdat$SurveyCount
-  ncounts = length(count)
-  obs_tau = 1/spdat$log_observation_SE^2
-  
-  # Use jagam to prepare basis functions
-  nyearspred = length(1:ymax)
-  preddat = data.frame(yrs = 1:ymax,count = 1)
-  form = as.formula(paste("count ~ s(yrs,k =",nknots,")"))
-  gamprep = jagam(formula = form,
-                  data = preddat,
-                  file = "tempgam.txt",
-                  centred = T)
-  
-  # Basis functions (just to visualize)
-  #gam_example <- gam(count~s(yrs,k = nknots,bs = "tp"),data = preddat,centred=T)
-  #model_matrix <- predict(gam_example, type = "lpmatrix")
-  #matplot(preddat$yrs, model_matrix[,-1], type = "l", lty = 2)
-  
-  
-  # Package data into a list for JAGS
-  jags_data = list(X = gamprep$jags.data$X,
-                   S1 = gamprep$jags.data$S1,
-                   zero = gamprep$jags.data$zero,
-                   colony = colony,
-                   ncounts = ncounts,
-                   ncolony = ncolony,
-                   count = count,
-                   nknots = nknots,
-                   nyearspred = nyearspred,
-                   year = year,
-                   obs_tau = obs_tau)
-  
-  # Fit model using JAGS
-  parameters.to.save = c("sdnoise","sdbeta","C","beta.X","population_index")
-  out <- jags(data = jags_data,
-              parameters.to.save = parameters.to.save,
-              inits = NULL,
-              n.iter = 110000,
-              n.burnin = 10000,
-              n.thin = 10,
-              model.file = "Atlantic_GAMM_with_ObsError.jags",
-              n.chains = 3,
-              parallel = TRUE)
-  
-  out$mcmc.info$elapsed.mins # ~0.75 mins
-  
-  # ----------------------------------------------------------
-  # Part 4: Summarize predictions and compare to true (i.e., simulated) trajectories
-  # ----------------------------------------------------------
-  
-  # Extract predictions in dataframe format
-  fit_samples = reshape2::melt(out$sims.list$population_index) %>%
-    rename(samp = Var1, Year = Var2, Colony = Var3, N_pred = value)
-  
-  N_summary_colony = fit_samples %>% 
-    group_by(Colony, Year) %>%
-    summarize(q025 = quantile(N_pred,0.025),
-              q50 = quantile(N_pred,0.500),
-              mean = mean(N_pred),
-              q975 = quantile(N_pred,0.975)) %>%
+    # Data for import into jags
+    nknots = 10
+    year <- spdat$Year
+    ymax <- nyears
+    colony = spdat$Colony
+    count <- spdat$SurveyCount
+    ncounts = length(count)
+    obs_tau = 1/spdat$log_observation_SE^2
     
-    # Join with true values
-    full_join(N_df)
-  
-  # Plot estimates
-  ggplot()+
-    geom_ribbon(data = N_summary_colony, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
-    geom_line(data = N_summary_colony, aes(x = Year, y = q50, col = "Estimate"))+
+    # Use jagam to prepare basis functions
+    nyearspred = length(1:ymax)
+    preddat = data.frame(yrs = 1:ymax,count = 1)
+    form = as.formula(paste("count ~ s(yrs,k =",nknots,")"))
+    gamprep = jagam(formula = form,
+                    data = preddat,
+                    file = "tempgam.txt",
+                    centred = T)
     
-    geom_line(data = N_df, aes(x = Year, y = N, col = "True Trajectory"))+
-    geom_errorbar(data = N_df, aes(x = Year, ymin = SurveyCount_lci, ymax = SurveyCount_uci), col = "black", width = 0)+
-    geom_point(data = N_df, aes(x = Year, y = SurveyCount, col = "Observed Count"))+
-    theme_few()+
-    facet_wrap(Colony~.)+
-    scale_y_continuous(trans="log10", labels = comma)+
-    ggtitle("Simulated trajectories at each of 9 colonies")+
-    scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
-    ylab("Index of abundance")
-  
-  # ----------------------------------------------------------
-  # Part 5: Calculate regional total
-  # ----------------------------------------------------------
-  
-  # True regional total
-  regional_df <- N_df %>%
-    group_by(Year) %>%
-    summarize(N = sum(N))
-  
-  # Estimated regional total
-  regional_samples = fit_samples %>% 
-    group_by(Year,samp) %>%
-    summarize(N_pred = sum(N_pred)) 
-  
-  # Summary (mean and 95% CI)
-  N_summary_regional <- regional_samples %>%
-    group_by(Year) %>%
-    summarize(q025 = quantile(N_pred,0.025),
-              q50 = quantile(N_pred,0.500),
-              mean = mean(N_pred),
-              q975 = quantile(N_pred,0.975)) %>%
+    # Package data into a list for JAGS
+    jags_data = list(X = gamprep$jags.data$X,
+                     S1 = gamprep$jags.data$S1,
+                     zero = gamprep$jags.data$zero,
+                     colony = colony,
+                     ncounts = ncounts,
+                     ncolony = ncolony,
+                     count = count,
+                     nknots = nknots,
+                     nyearspred = nyearspred,
+                     year = year,
+                     survey_count = count,
+                     survey_SE = spdat$survey_SE)
     
-    # Join with true values
-    full_join(regional_df)
-  
-  # Trend estimate
-  baseline_year <- 1
-  trend_true <- 100*((regional_df$N[regional_df$Year == nyears]/regional_df$N[regional_df$Year == baseline_year])^(1/(nyears-baseline_year))-1)
-  
-  trend_est <- 100*((regional_samples$N_pred[regional_samples$Year == nyears]/regional_samples$N_pred[regional_samples$Year == baseline_year])^(1/(nyears-baseline_year))-1)
-  trend_est <- quantile(trend_est,c(0.025,0.5,0.975))
-  
-  ggplot()+
-    geom_ribbon(data = N_summary_regional, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
-    geom_line(data = N_summary_regional, aes(x = Year, y = q50, col = "Estimate"))+
+    # Fit model using JAGS
+    parameters.to.save = c("intercept_SE","slope_SE","sd_SE","population_index")
+    out <- jags(data = jags_data,
+                parameters.to.save = parameters.to.save,
+                inits = NULL,
+                n.iter = 200000,
+                n.burnin = 100000,
+                n.thin = 50,
+                model.file = "../Seabird_Model.jags",
+                n.chains = 3,
+                parallel = TRUE)
     
-    geom_line(data = regional_df, aes(x = Year, y = N, col = "True Trajectory"))+
-    theme_few()+
-    scale_y_continuous(labels = comma)+
-    ggtitle("Regional trajectory")+
-    scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
-    ylab("Index of abundance")+
-    geom_text(aes(x = 0, 
-                  y = max(c(N_summary_regional$q975,N_summary_regional$N))), 
-              label = paste0("True trend = ",round(trend_true,2),"% per year\nEst trend = ",round(trend_est[2],2),"% (",round(trend_est[1],2)," to ",round(trend_est[3],2),")"), hjust=0)
-  
-  # ----------------------------------------------------------
-  # Append results for this simulation run to dataframe
-  # ----------------------------------------------------------
-  
-  trend_results <- rbind(trend_results,data.frame(run = run,
-                                                  trend_true = trend_true,
-                                                  trend_est_q025 = trend_est[1],
-                                                  trend_est_q500 = trend_est[2],
-                                                  trend_est_q975 = trend_est[3],
-                                                  cov = trend_true > trend_est[1] & trend_true < trend_est[3],
-                                                  max_Rhat = max(out$Rhat$population_index)))
+    out$mcmc.info$elapsed.mins # ~1.5 mins
+    
+    # ----------------------------------------------------------
+    # Part 4: Summarize predictions and compare to true (i.e., simulated) trajectories
+    # ----------------------------------------------------------
+    
+    # Extract predictions in dataframe format
+    fit_samples = reshape2::melt(out$sims.list$population_index) %>%
+      rename(samp = Var1, Year = Var2, Colony = Var3, N_pred = value)
+    
+    N_summary_colony = fit_samples %>% 
+      group_by(Colony, Year) %>%
+      summarize(q025 = quantile(N_pred,0.025),
+                q50 = quantile(N_pred,0.500),
+                mean = mean(N_pred),
+                q975 = quantile(N_pred,0.975)) %>%
+      
+      # Join with true values
+      full_join(N_df)
+    
+    # Plot estimates
+    ggplot()+
+      geom_ribbon(data = N_summary_colony, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
+      geom_line(data = N_summary_colony, aes(x = Year, y = q50, col = "Estimate"))+
+      
+      geom_line(data = N_df, aes(x = Year, y = N, col = "True Trajectory"))+
+      geom_errorbar(data = N_df, aes(x = Year, ymin = SurveyCount_lci, ymax = SurveyCount_uci), col = "black", width = 0)+
+      geom_point(data = N_df, aes(x = Year, y = SurveyCount, col = "Observed Count"))+
+      theme_few()+
+      facet_wrap(Colony~.)+
+      scale_y_continuous(trans="log10", labels = comma)+
+      ggtitle("Simulated regional trajectory")+
+      scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
+      ylab("Index of abundance")
+    
+    # ----------------------------------------------------------
+    # Part 5: Calculate regional annual indices as sum of individual colony annual indices
+    # ----------------------------------------------------------
+    
+    # True regional annual indices
+    regional_df <- N_df %>%
+      group_by(Year) %>%
+      summarize(N = sum(N))
+    
+    # Fit a GAM through the regional indices.  
+    # This is the "true" trajectory we are trying to estimate
+    regional_df$log_N <- log(regional_df$N)
+    gam_true <- gam(log_N~s(Year, k = -1), data = regional_df)
+    regional_df$population_index <- exp(predict(gam_true) )
+    
+    # Estimated regional annual indices
+    regional_samples = fit_samples %>% 
+      group_by(Year,samp) %>%
+      summarize(N_pred = sum(N_pred)) 
+    
+    # Summary (mean and 95% CI)
+    N_summary_regional <- regional_samples %>%
+      group_by(Year) %>%
+      summarize(q025 = quantile(N_pred,0.025),
+                q50 = quantile(N_pred,0.500),
+                mean = mean(N_pred),
+                q975 = quantile(N_pred,0.975)) %>%
+      
+      # Join with true values
+      full_join(regional_df)
+    
+    # Trend estimate
+    baseline_year <- 1
+    trend_true <- 100*((regional_df$population_index[regional_df$Year == nyears]/regional_df$population_index[regional_df$Year == baseline_year])^(1/(nyears-baseline_year))-1)
+    
+    trend_est <- 100*((regional_samples$N_pred[regional_samples$Year == nyears]/regional_samples$N_pred[regional_samples$Year == baseline_year])^(1/(nyears-baseline_year))-1)
+    trend_est <- quantile(trend_est,c(0.025,0.5,0.975))
+    
+    regional_plot <- ggplot()+
+      geom_ribbon(data = N_summary_regional, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
+      geom_line(data = N_summary_regional, aes(x = Year, y = q50, col = "Estimate"))+
+      
+      geom_point(data = regional_df, aes(x = Year, y = N))+
+      geom_line(data = regional_df,aes(x = Year, y = population_index, col = "True Trajectory"))+
+      theme_few()+
+      scale_y_continuous(labels = comma)+
+      ggtitle("Regional trajectory")+
+      scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
+      ylab("Index of abundance")+
+      geom_text(aes(x = 0, 
+                    y = max(c(N_summary_regional$q975,N_summary_regional$N))), 
+                label = paste0("True trend = ",round(trend_true,2),"% per year\nEst trend = ",round(trend_est[2],2),"% (",round(trend_est[1],2)," to ",round(trend_est[3],2),")"), hjust=0)
+    print(regional_plot)
+    
+    # ----------------------------------------------------------
+    # Append results for this simulation run to dataframe
+    # ----------------------------------------------------------
+    if (file.exists("simulation_results.rds")) simulation_results <- readRDS("simulation_results.rds")
+    
+    simulation_results <- rbind(simulation_results,data.frame(run = run,
+                                                              sd_shared = sd_shared,
+                                                              trend_true = trend_true,
+                                                              trend_est_q025 = trend_est[1],
+                                                              trend_est_q500 = trend_est[2],
+                                                              trend_est_q975 = trend_est[3],
+                                                              cov = trend_true > trend_est[1] & trend_true < trend_est[3],
+                                                              max_Rhat = max(out$Rhat$population_index)))
+    
+    saveRDS(simulation_results, file = "simulation_results.rds")
+    
+  }  # sd_shared
   
   # ----------------------------------------------------------
   # Plot results
   # ----------------------------------------------------------
+  simulation_results <- readRDS("simulation_results.rds")
   
-  lim = range(trend_results[,c("trend_true","trend_est_q025","trend_est_q975")])
-  lim = c(-6,6)
-  trend_plot <- ggplot(data = trend_results, aes(x = trend_true, y = trend_est_q500, ymin = trend_est_q025, ymax = trend_est_q975,col=cov))+
+  lim = range(simulation_results[,c("trend_true","trend_est_q025","trend_est_q975")])
+  trend_plot <- ggplot(data = simulation_results, aes(x = trend_true, y = trend_est_q500, ymin = trend_est_q025, ymax = trend_est_q975,col=cov))+
     geom_abline(intercept=0,slope=1,col="gray85")+
     geom_errorbar(width=0)+
     geom_point()+
@@ -355,7 +360,8 @@ for (run in 1:1000){
     xlab("True (simulated) regional trend")+
     ylab("Estimated regional trend")+
     scale_color_manual(values=c("red","dodgerblue"), name = "Coverage")+
-    ggtitle("Fit with GAMM")
+    ggtitle("Fit with GAMM")+
+    facet_grid(sd_shared~.)
   
   print(trend_plot)
   
@@ -365,12 +371,25 @@ for (run in 1:1000){
 # Summarize results across repeated simulations
 # ----------------------------------------------------------
 
-mean(trend_results$cov) # coverage
-mean(trend_results$trend_est_q500 - trend_results$trend_true) # accuracy
-mean(trend_results$trend_est_q975 - trend_results$trend_est_q025) # precision
+simulation_results <- readRDS("simulation_results.rds")
 
-lim = c(-6,6)
-trend_plot <- ggplot(data = trend_results, aes(x = trend_true, y = trend_est_q500, ymin = trend_est_q025, ymax = trend_est_q975,col=cov))+
+# Remove runs that failed to converge
+simulation_results_converged <- subset(simulation_results, max_Rhat <= 1.1)
+
+# Summarize accuracy and bias for each type of simulation
+simulation_results_converged %>%
+  group_by(sd_shared) %>%
+  summarize(n = n(),
+            mean_bias = mean(trend_est_q500 - trend_true),
+            SE_bias = sd(trend_est_q500 - trend_true),
+            coverage = mean(cov))
+
+mean(simulation_results_converged$cov) # coverage
+mean(simulation_results_converged$trend_est_q500 - simulation_results_converged$trend_true) # accuracy
+mean(simulation_results_converged$trend_est_q975 - simulation_results_converged$trend_est_q025) # precision
+
+lim = range(simulation_results_converged[,c("trend_true","trend_est_q025","trend_est_q975")])
+trend_plot <- ggplot(data = simulation_results_converged, aes(x = trend_true, y = trend_est_q500, ymin = trend_est_q025, ymax = trend_est_q975,col=cov))+
   geom_abline(intercept=0,slope=1,col="gray85")+
   geom_errorbar(width=0)+
   geom_point()+
@@ -379,5 +398,7 @@ trend_plot <- ggplot(data = trend_results, aes(x = trend_true, y = trend_est_q50
   xlab("True (simulated) regional trend")+
   ylab("Estimated regional trend")+
   scale_color_manual(values=c("red","dodgerblue"), name = "Coverage")+
-  ggtitle("Fit with GAMM")
+  ggtitle("Simulation results")+
+  facet_grid(sd_shared~.)
+
 print(trend_plot)
