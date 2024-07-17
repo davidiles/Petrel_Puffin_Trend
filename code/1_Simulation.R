@@ -2,8 +2,10 @@ my_packs = c('tidyverse',
              'jagsUI',
              'mgcv',
              'scales',
-             'ggthemes',
-             'faux')
+             'ggthemes')
+
+#,
+#             'faux')
 
 if (any(!my_packs %in% installed.packages()[, 'Package'])) {install.packages(my_packs[which(!my_packs %in% installed.packages()[, 'Package'])],dependencies = TRUE)}
 lapply(my_packs, require, character.only = TRUE)
@@ -14,31 +16,7 @@ rm(list=ls())
 # Set working directory
 # ------------------------------------------------
 
-stub <- function() {}
-thisPath <- function() {
-  cmdArgs <- commandArgs(trailingOnly = FALSE)
-  if (length(grep("^-f$", cmdArgs)) > 0) {
-    # R console option
-    normalizePath(dirname(cmdArgs[grep("^-f", cmdArgs) + 1]))[1]
-  } else if (length(grep("^--file=", cmdArgs)) > 0) {
-    
-    # Rscript/R console option
-    scriptPath <- normalizePath(dirname(sub("^--file=", "", cmdArgs[grep("^--file=", cmdArgs)])))[1]
-  } else if (Sys.getenv("RSTUDIO") == "1") {
-    # RStudio
-    dirname(rstudioapi::getSourceEditorContext()$path)
-  } else if (is.null(attr(stub, "srcref")) == FALSE) {
-    # 'source'd via R console
-    dirname(normalizePath(attr(attr(stub, "srcref"), "srcfile")$filename))
-  } else {
-    stop("Cannot find file path")
-  }
-}
-
-dirname <- thisPath()
-setwd(dirname)
-
-`%!in%` <- Negate(`%in%`)
+setwd("C:/Users/IlesD/OneDrive - EC-EC/Iles/Projects/Seabirds/Petrel_Puffin_Trend/code")
 
 # ------------------------------------------------
 # ggplot theme
@@ -61,13 +39,15 @@ CustomTheme <- theme_update(legend.key = element_rect(colour = NA),
                             axis.title.x = element_text(margin = margin(10,0,0,0)),
                             panel.background = element_rect(fill = "white"))
 
+`%!in%` <- Negate(`%in%`)
+
 # ----------------------------------------------------------
-# Part 1: Simulate an entire 50-year time series for each of 9 colonies
+# Part 1: Simulate an entire 50-year time series for each of 15 colonies
 # ----------------------------------------------------------
 
 simulation_results <- data.frame()
 
-for (run in (1:500)){
+for (run in 1:500){
   
   # How variable is the "shared" component of environmental variation?
   for (sd_shared in c(0,0.1)){
@@ -75,12 +55,12 @@ for (run in (1:500)){
     set.seed(run)
     
     # Load results that have completed so far
-    if (file.exists("simulation_results.rds")) simulation_results <- readRDS("simulation_results.rds")
+    if (file.exists("../output/model_output/simulation_results.rds")) simulation_results <- readRDS("../output/model_output/simulation_results.rds")
     
     # Skip this iteration, if it has already been run
     if (nrow(simulation_results) > 0 & sum(simulation_results$run == run & simulation_results$sd_shared == sd_shared)) next
     
-    ncolony <- 9
+    ncolony <- 15
     nyears <- 50
     
     # Time-varying environmental covariate
@@ -112,23 +92,20 @@ for (run in (1:500)){
       geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
       theme_few()+
       scale_y_continuous(labels = comma, trans = "log10")+
-      scale_color_manual(values = c(brewer.pal(ncolony,"Spectral"),"black"), name = "Colony")+
-      ggtitle("Simulated trajectories at each of 9 colonies")+
+      ggtitle("Simulated trajectories at each of 15 colonies")+
       ylab("Abundance")+
       xlab("Year")
     
     ggplot()+
       geom_line(aes(x = 1:nyears, y = colSums(N_matrix), col = "Regional Sum"),linewidth = 1)+
-      #geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
       theme_few()+
       scale_y_continuous(labels = comma, trans = "log10")+
-      #scale_color_manual(values = c(brewer.pal(ncolony,"Spectral"),"black"), name = "Colony")+
       ggtitle("Simulated trajectories at each of 9 colonies")+
       ylab("Abundance")+
       xlab("Year")
     
     # ----------------------------------------------------------
-    # Part 2: Simulate intermittent surveys (3-5 surveys at each colony)
+    # Part 2: Simulate intermittent surveys (2-6 surveys at each colony)
     # ----------------------------------------------------------
     
     intercept_SE = -0.95
@@ -159,7 +136,7 @@ for (run in (1:500)){
       survey_years <- c(survey_years, sample(nyears:(nyears-5),1))
       
       # Simulate 2-4 additional surveys
-      survey_years <- c(survey_years, sample(6:(nyears-6),sample(2:4,1)))
+      survey_years <- c(survey_years, sample(6:(nyears-6),sample(0:4,1)))
       
       # Poisson observations
       N_df$SurveyCount[(N_df$Colony == i) & 
@@ -195,7 +172,7 @@ for (run in (1:500)){
     spdat <- N_df %>% subset(!is.na(SurveyCount)) %>% dplyr::select(Colony,Year,SurveyCount,survey_SE)
     
     # Data for import into jags
-    nknots = 10
+    nknots = 6
     year <- spdat$Year
     ymax <- nyears
     colony = spdat$Colony
@@ -234,7 +211,7 @@ for (run in (1:500)){
                 n.iter = 200000,
                 n.burnin = 100000,
                 n.thin = 50,
-                model.file = "../Seabird_Model.jags",
+                model.file = "Seabird_Model.jags",
                 n.chains = 3,
                 parallel = TRUE)
     
@@ -304,14 +281,17 @@ for (run in (1:500)){
       # Join with true values
       full_join(regional_df)
     
-    # Trend estimate
+    # ----------------------------------------------------------
+    # 50-year trend estimate
+    # ----------------------------------------------------------
+    
     baseline_year <- 1
-    trend_true <- 100*((regional_df$population_index[regional_df$Year == nyears]/regional_df$population_index[regional_df$Year == baseline_year])^(1/(nyears-baseline_year))-1)
+    trend_true_50yr <- 100*((regional_df$population_index[regional_df$Year == nyears]/regional_df$population_index[regional_df$Year == baseline_year])^(1/(nyears-baseline_year))-1)
     
-    trend_est <- 100*((regional_samples$N_pred[regional_samples$Year == nyears]/regional_samples$N_pred[regional_samples$Year == baseline_year])^(1/(nyears-baseline_year))-1)
-    trend_est <- quantile(trend_est,c(0.025,0.5,0.975))
+    trend_est_50yr <- 100*((regional_samples$N_pred[regional_samples$Year == nyears]/regional_samples$N_pred[regional_samples$Year == baseline_year])^(1/(nyears-baseline_year))-1)
+    trend_est_50yr <- quantile(trend_est_50yr,c(0.025,0.5,0.975))
     
-    regional_plot <- ggplot()+
+    regional_plot_50yr <- ggplot()+
       geom_ribbon(data = N_summary_regional, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
       geom_line(data = N_summary_regional, aes(x = Year, y = q50, col = "Estimate"))+
       
@@ -324,46 +304,88 @@ for (run in (1:500)){
       ylab("Index of abundance")+
       geom_text(aes(x = 0, 
                     y = max(c(N_summary_regional$q975,N_summary_regional$N))), 
-                label = paste0("True trend = ",round(trend_true,2),"% per year\nEst trend = ",round(trend_est[2],2),"% (",round(trend_est[1],2)," to ",round(trend_est[3],2),")"), hjust=0)
-    print(regional_plot)
+                label = paste0("True trend = ",round(trend_true_50yr,2),"% per year\nEst trend = ",round(trend_est_50yr[2],2),"% (",round(trend_est_50yr[1],2)," to ",round(trend_est_50yr[3],2),")"), hjust=0)
+    
+    # ----------------------------------------------------------
+    # 10-year trend estimate
+    # ----------------------------------------------------------
+    
+    baseline_year <- 41
+    trend_true_10yr <- 100*((regional_df$population_index[regional_df$Year == nyears]/regional_df$population_index[regional_df$Year == baseline_year])^(1/(nyears-baseline_year))-1)
+    
+    trend_est_10yr <- 100*((regional_samples$N_pred[regional_samples$Year == nyears]/regional_samples$N_pred[regional_samples$Year == baseline_year])^(1/(nyears-baseline_year))-1)
+    trend_est_10yr <- quantile(trend_est_10yr,c(0.025,0.5,0.975))
+    
+    regional_plot_10yr <- ggplot()+
+      geom_ribbon(data = N_summary_regional, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
+      geom_line(data = N_summary_regional, aes(x = Year, y = q50, col = "Estimate"))+
+      
+      geom_point(data = regional_df, aes(x = Year, y = N))+
+      geom_line(data = regional_df,aes(x = Year, y = population_index, col = "True Trajectory"))+
+      theme_few()+
+      scale_y_continuous(labels = comma)+
+      ggtitle("Regional trajectory")+
+      scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
+      ylab("Index of abundance")+
+      geom_text(aes(x = 0, 
+                    y = max(c(N_summary_regional$q975,N_summary_regional$N))), 
+                label = paste0("True trend = ",round(trend_true_10yr,2),"% per year\nEst trend = ",round(trend_est_10yr[2],2),"% (",round(trend_est_10yr[1],2)," to ",round(trend_est_10yr[3],2),")"), hjust=0)
     
     # ----------------------------------------------------------
     # Append results for this simulation run to dataframe
     # ----------------------------------------------------------
-    if (file.exists("simulation_results.rds")) simulation_results <- readRDS("simulation_results.rds")
+    if (file.exists("../output/model_output/simulation_results.rds")) simulation_results <- readRDS("../output/model_output/simulation_results.rds")
     
     simulation_results <- rbind(simulation_results,data.frame(run = run,
                                                               sd_shared = sd_shared,
-                                                              trend_true = trend_true,
-                                                              trend_est_q025 = trend_est[1],
-                                                              trend_est_q500 = trend_est[2],
-                                                              trend_est_q975 = trend_est[3],
-                                                              cov = trend_true > trend_est[1] & trend_true < trend_est[3],
+                                                              trend_true_50yr = trend_true_50yr,
+                                                              trend_est_50yr_q025 = trend_est_50yr[1],
+                                                              trend_est_50yr_q500 = trend_est_50yr[2],
+                                                              trend_est_50yr_q975 = trend_est_50yr[3],
+                                                              cov_50yr = trend_true_50yr > trend_est_50yr[1] & trend_true_50yr < trend_est_50yr[3],
+                                                              
+                                                              trend_true_10yr = trend_true_10yr,
+                                                              trend_est_10yr_q025 = trend_est_10yr[1],
+                                                              trend_est_10yr_q500 = trend_est_10yr[2],
+                                                              trend_est_10yr_q975 = trend_est_10yr[3],
+                                                              cov_10yr = trend_true_10yr > trend_est_10yr[1] & trend_true_10yr < trend_est_10yr[3],
+                                                              
                                                               max_Rhat = max(out$Rhat$population_index)))
     
-    saveRDS(simulation_results, file = "simulation_results.rds")
+    saveRDS(simulation_results, file = "../output/model_output/simulation_results.rds")
     
   }  # sd_shared
   
   # ----------------------------------------------------------
   # Plot results
   # ----------------------------------------------------------
-  simulation_results <- readRDS("simulation_results.rds")
+  simulation_results <- readRDS("../output/model_output/simulation_results.rds")
   
-  lim = range(simulation_results[,c("trend_true","trend_est_q025","trend_est_q975")])
-  trend_plot <- ggplot(data = simulation_results, aes(x = trend_true, y = trend_est_q500, ymin = trend_est_q025, ymax = trend_est_q975,col=cov))+
+  lim = range(simulation_results[,c("trend_true_50yr","trend_est_50yr_q025","trend_est_50yr_q975",
+                                    "trend_true_10yr","trend_est_10yr_q025","trend_est_10yr_q975")])
+  trend_plot_50yr <- ggplot(data = simulation_results, aes(x = trend_true_50yr, y = trend_est_50yr_q500, ymin = trend_est_50yr_q025, ymax = trend_est_50yr_q975,col=cov_50yr))+
     geom_abline(intercept=0,slope=1,col="gray85")+
     geom_errorbar(width=0)+
     geom_point()+
     coord_cartesian(ylim=lim,xlim=lim)+
     theme_bw()+
-    xlab("True (simulated) regional trend")+
-    ylab("Estimated regional trend")+
+    xlab("True (simulated) regional 50-year trend")+
+    ylab("Estimated regional 50-year trend")+
     scale_color_manual(values=c("red","dodgerblue"), name = "Coverage")+
-    ggtitle("Fit with GAMM")+
+    ggtitle("50-year trend estimates")+
     facet_grid(sd_shared~.)
   
-  print(trend_plot)
+  trend_plot_10yr <- ggplot(data = simulation_results, aes(x = trend_true_10yr, y = trend_est_10yr_q500, ymin = trend_est_10yr_q025, ymax = trend_est_10yr_q975,col=cov_10yr))+
+    geom_abline(intercept=0,slope=1,col="gray85")+
+    geom_errorbar(width=0)+
+    geom_point()+
+    coord_cartesian(ylim=lim,xlim=lim)+
+    theme_bw()+
+    xlab("True (simulated) regional 10-year trend")+
+    ylab("Estimated regional 10-year trend")+
+    scale_color_manual(values=c("red","dodgerblue"), name = "Coverage")+
+    ggtitle("10-year trend estimates")+
+    facet_grid(sd_shared~.)
   
 }
 
@@ -371,34 +393,57 @@ for (run in (1:500)){
 # Summarize results across repeated simulations
 # ----------------------------------------------------------
 
-simulation_results <- readRDS("simulation_results.rds")
+simulation_results <- readRDS("../output/model_output/simulation_results.rds")
 
 # Remove runs that failed to converge
 simulation_results_converged <- subset(simulation_results, max_Rhat <= 1.1)
 
-# Summarize accuracy and bias for each type of simulation
-simulation_results_converged %>%
-  group_by(sd_shared) %>%
-  summarize(n = n(),
-            mean_bias = mean(trend_est_q500 - trend_true),
-            SE_bias = sd(trend_est_q500 - trend_true),
-            coverage = mean(cov))
+# ----------------------------------------------------------
+# Plot results
+# ----------------------------------------------------------
 
-mean(simulation_results_converged$cov) # coverage
-mean(simulation_results_converged$trend_est_q500 - simulation_results_converged$trend_true) # accuracy
-mean(simulation_results_converged$trend_est_q975 - simulation_results_converged$trend_est_q025) # precision
-
-lim = range(simulation_results_converged[,c("trend_true","trend_est_q025","trend_est_q975")])
-trend_plot <- ggplot(data = simulation_results_converged, aes(x = trend_true, y = trend_est_q500, ymin = trend_est_q025, ymax = trend_est_q975,col=cov))+
+lim = range(simulation_results_converged[,c("trend_true_50yr","trend_est_50yr_q025","trend_est_50yr_q975",
+                                  "trend_true_10yr","trend_est_10yr_q025","trend_est_10yr_q975")])
+trend_plot_50yr <- ggplot(data = simulation_results_converged, aes(x = trend_true_50yr, y = trend_est_50yr_q500, ymin = trend_est_50yr_q025, ymax = trend_est_50yr_q975,col=cov_50yr))+
   geom_abline(intercept=0,slope=1,col="gray85")+
   geom_errorbar(width=0)+
   geom_point()+
   coord_cartesian(ylim=lim,xlim=lim)+
   theme_bw()+
-  xlab("True (simulated) regional trend")+
-  ylab("Estimated regional trend")+
+  xlab("True (simulated) regional 50-year trend")+
+  ylab("Estimated regional 50-year trend")+
   scale_color_manual(values=c("red","dodgerblue"), name = "Coverage")+
-  ggtitle("Simulation results")+
+  ggtitle("50-year trend estimates")+
   facet_grid(sd_shared~.)
 
-print(trend_plot)
+print(trend_plot_50yr)
+
+trend_plot_10yr <- ggplot(data = simulation_results_converged, aes(x = trend_true_10yr, y = trend_est_10yr_q500, ymin = trend_est_10yr_q025, ymax = trend_est_10yr_q975,col=cov_10yr))+
+  geom_abline(intercept=0,slope=1,col="gray85")+
+  geom_errorbar(width=0)+
+  geom_point()+
+  coord_cartesian(ylim=lim,xlim=lim)+
+  theme_bw()+
+  xlab("True (simulated) regional 10-year trend")+
+  ylab("Estimated regional 10-year trend")+
+  scale_color_manual(values=c("red","dodgerblue"), name = "Coverage")+
+  ggtitle("10-year trend estimates")+
+  facet_grid(sd_shared~.)
+
+print(trend_plot_10yr)
+
+# Summarize accuracy and bias for 50-year trend estimates
+simulation_results_converged %>%
+  group_by(sd_shared) %>%
+  summarize(n = n(),
+            mean_bias = mean(trend_est_50yr_q500 - trend_true_50yr),
+            SE_bias = sd(trend_est_50yr_q500 - trend_true_50yr),
+            coverage = mean(cov_50yr))
+
+# Summarize accuracy and bias for 10-year trend estimates
+simulation_results_converged %>%
+  group_by(sd_shared) %>%
+  summarize(n = n(),
+            mean_bias = mean(trend_est_10yr_q500 - trend_true_10yr),
+            SE_bias = sd(trend_est_10yr_q500 - trend_true_10yr),
+            coverage = mean(cov_10yr))

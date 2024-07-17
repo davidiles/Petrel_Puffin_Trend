@@ -1,6 +1,7 @@
+data/ATPU trend Atlantic Region up to 2023/
 data/spatial_data/
 literature/
-data/ATPU trend Atlantic Region up to 2023/
 code/archived_code/
+output/model_output/
 *.rds
 .Rhistory
