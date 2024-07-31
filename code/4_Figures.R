@@ -5,11 +5,6 @@ library(readxl)
 library(patchwork)
 library(png)
 library(grid)
-#library(ggspatial)  # for scalebars on ggplot maps
-#library(ggsflabel) # devtools::install_github("yutannihilation/ggsflabel")
-#library(ggrepel)
-#library(mapview)
-#library(viridis)
 
 rm(list=ls())
 
@@ -113,7 +108,7 @@ col_pal <- rev(viridis::plasma(10))[3:10] %>%colorRampPalette()
 
 LESP_clipart <- readPNG("../data/images/LESP_clipart.png", native=TRUE) %>%
   rasterGrob(interpolate=TRUE)
-  
+
 Fig1A <- basemap2 + 
   
   # All colonies
@@ -190,17 +185,44 @@ ggsave(filename="../output/figures/maps/Fig1_maps.png", plot=Fig1,
 # **********************************************************
 # **********************************************************
 
+# - produced by script 2_LESP_analysis.R
+
 # **********************************************************
 # **********************************************************
 # Figure 3: Trajectories of each ATPU colony
 # **********************************************************
 # **********************************************************
 
+# - produced by script 3_ATPU_analysis.R
+
 # **********************************************************
 # **********************************************************
-# Figure 4: Regional trajectories for each species
+# Figure 4: Regional trajectories and trends for both species
 # **********************************************************
 # **********************************************************
+
+# Load LESP workspace
+load("../output/model_output/LESP_wksp.RData")
+
+plot_margins <- theme(plot.margin = margin(0.1,0.1,0.5,0.5, "cm"))
+Fig4A <- regional_trajectory_plot + annotate("text", label = "A", x=-Inf, y=Inf, vjust=2, hjust=-1, size=8) + plot_margins
+Fig4C <- trend_5_yr_plot + annotate("text", label = "C", x=-Inf, y=Inf, vjust=2, hjust=-1, size=8) + plot_margins
+Fig4E <- trend_3Gen_plot + annotate("text", label = "E", x=-Inf, y=Inf, vjust=2, hjust=-1, size=8) + plot_margins
+
+# Load ATPU workspace
+load("../output/model_output/ATPU_wksp.RData")
+
+Fig4B <- regional_trajectory_plot + annotate("text", label = "B", x=-Inf, y=Inf, vjust=2, hjust=-1, size=8) + plot_margins
+Fig4D <- trend_5_yr_plot + annotate("text", label = "D", x=-Inf, y=Inf, vjust=2, hjust=-1, size=8) + plot_margins
+Fig4F <- trend_3Gen_plot + annotate("text", label = "F", x=-Inf, y=Inf, vjust=2, hjust=-1, size=8) + plot_margins
+
+# Combine into single 6-panel figure
+Fig4 <- Fig4A + Fig4B + Fig4C + 
+  Fig4D + Fig4E + Fig4F +
+  plot_layout(nrow=3, heights = c(2, 2,1.5))
+
+ggsave(filename="../output/figures/trajectory_and_trend_plots/Fig4.png", plot=Fig4, 
+       device="png", dpi=300, units="cm", width=20, height=20)
 
 # **********************************************************
 # **********************************************************

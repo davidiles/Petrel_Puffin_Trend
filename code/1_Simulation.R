@@ -4,9 +4,6 @@ my_packs = c('tidyverse',
              'scales',
              'ggthemes')
 
-#,
-#             'faux')
-
 if (any(!my_packs %in% installed.packages()[, 'Package'])) {install.packages(my_packs[which(!my_packs %in% installed.packages()[, 'Package'])],dependencies = TRUE)}
 lapply(my_packs, require, character.only = TRUE)
 
@@ -47,7 +44,7 @@ CustomTheme <- theme_update(legend.key = element_rect(colour = NA),
 
 simulation_results <- data.frame()
 
-for (run in 1:500){
+for (run in (1:1000)){
   
   # How variable is the "shared" component of environmental variation?
   for (sd_shared in c(0,0.1)){
@@ -129,11 +126,11 @@ for (run in 1:500){
       
       survey_years <- c()
       
-      # Simulate one count in first 5 years of surveys
-      survey_years <- c(survey_years, sample(1:5,1))
+      # Simulate one count in first 10 years of surveys
+      survey_years <- c(survey_years, sample(1:10,1))
       
-      # Simulate one count in final 5 years of surveys
-      survey_years <- c(survey_years, sample(nyears:(nyears-5),1))
+      # Simulate one count in final 10 years of surveys
+      survey_years <- c(survey_years, sample(nyears:(nyears-10),1))
       
       # Simulate 2-4 additional surveys
       survey_years <- c(survey_years, sample(6:(nyears-6),sample(0:4,1)))
@@ -146,7 +143,8 @@ for (run in 1:500){
     }
     
     # Omit 35% of standard errors to mimick missing information in empirical data
-    SEs_to_drop <- sample(1:nrow(N_df), size = round(0.35*nrow(N_df)))
+    survey_rows <- which(!is.na(N_df$SurveyCount))
+    SEs_to_drop <- sample(survey_rows,round(length(survey_rows)*0.35))
     N_df$survey_SE[SEs_to_drop] <- NA
     
     # Confidence intervals on counts
@@ -263,7 +261,7 @@ for (run in 1:500){
     # This is the "true" trajectory we are trying to estimate
     regional_df$log_N <- log(regional_df$N)
     gam_true <- gam(log_N~s(Year, k = -1), data = regional_df)
-    regional_df$population_index <- exp(predict(gam_true) )
+    regional_df$population_index <- exp(predict(gam_true))
     
     # Estimated regional annual indices
     regional_samples = fit_samples %>% 
@@ -387,6 +385,7 @@ for (run in 1:500){
     ggtitle("10-year trend estimates")+
     facet_grid(sd_shared~.)
   
+  #print(trend_plot_50yr)
 }
 
 # ----------------------------------------------------------
@@ -396,7 +395,7 @@ for (run in 1:500){
 simulation_results <- readRDS("../output/model_output/simulation_results.rds")
 
 # Remove runs that failed to converge
-simulation_results_converged <- subset(simulation_results, max_Rhat <= 1.1)
+simulation_results_converged <- subset(simulation_results, max_Rhat <= 1.05)
 
 # ----------------------------------------------------------
 # Plot results

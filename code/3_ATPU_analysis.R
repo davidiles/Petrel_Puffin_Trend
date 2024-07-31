@@ -199,7 +199,7 @@ parameters.to.save = c(
   'lambda'
 )
 
-#if (!file.exists("../output/model_output/ATPU_fitted.rds")){
+if (!file.exists("../output/model_output/ATPU_fitted.rds")){
   
   out <- jags(data = jags_data,
               parameters.to.save = parameters.to.save,
@@ -213,7 +213,7 @@ parameters.to.save = c(
   
   # Save fitted model
   saveRDS(out, file = "../output/model_output/ATPU_fitted.rds")
-#}
+}
 
 # Load fitted model ----
 out <- readRDS(file = "../output/model_output/ATPU_fitted.rds")
@@ -308,8 +308,8 @@ ObsPredPlot <- ggplot(annual_summary_colony,
   scale_colour_manual(values=viridis::plasma(length(unique(annual_summary_colony$Colony)))) +
   xlab("Observed Count (log-scale)")+
   ylab("Estimated Population Index (log-scale)")+
-  scale_y_continuous(trans="log10", labels = comma)+
-  scale_x_continuous(trans="log10", labels = comma)+
+  scale_y_continuous(trans="log10")+
+  scale_x_continuous(trans="log10")+
   theme(legend.position="none") +
   theme(axis.title.y = element_text(margin = margin(0,10,0,0),size=14),
         axis.title.x = element_text(margin = margin(10,0,0,0),size=14),
@@ -423,7 +423,7 @@ regional_trajectory_plot <- ggplot()+
   
   #coord_cartesian(ylim = c(ylim$min/1000000,ylim$max/1000000))+
   
-  scale_y_continuous(breaks = seq(0, 15, by = 5)) +
+  scale_y_continuous(breaks = seq(0, 15, by = 1)) +
   scale_x_continuous(limits=c(1966,2023), breaks = seq(1970, 2020, by = 10), expand = c(0, 0))+
   coord_cartesian(ylim=ylim/1000000)+
   scale_color_manual(values=rep("grey50",length(unique(fit_samples_regional$samp))), 
@@ -440,36 +440,6 @@ ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_trajectory_re
 # Trend analysis
 #   - summarize geometric mean rates of change across specific time intervals
 # -------------------------------------------------
-
-# ---------------
-# 3-generation trend
-# ---------------
-
-# Generation Length = 11 years; COSEWIC
-t_end <- 2023
-t_start <- floor(t_end - (11*3))
-
-regional_indices_t_start <- subset(fit_samples_regional, Year == t_start)
-regional_indices_t_end <- subset(fit_samples_regional, Year == t_end)
-trend_3Gen <- 100 * ((regional_indices_t_end$N_pred/regional_indices_t_start$N_pred)^(1/(t_end-t_start))-1)
-
-trend_label = paste0("Posterior Mean = ",round(mean(trend_3Gen),2), "%\n95% CRI = ",round(quantile(trend_3Gen,0.025),2),"% to ",round(quantile(trend_3Gen,0.975),2),"%\nProb(Trend > 0) = ",round(mean(trend_3Gen > 0),2))
-trend_3Gen_plot <- ggplot()+
-  geom_density(aes(x = trend_3Gen), fill = "gray80", col = "transparent")+
-  geom_vline(xintercept = 0)+
-  xlab("3-Generation Trend\n\n(% change per year)")+
-  ylab("Probability Density")+
-  coord_cartesian(xlim=c(-5,5))
-
-ylim <- layer_scales(trend_3Gen_plot)$y$range$range
-
-trend_3Gen_plot <- trend_3Gen_plot +
-  geom_text(aes(x = -5, y = ylim[2]),label = trend_label, hjust = 0,vjust=1)
-trend_3Gen_plot
-
-ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_Trend_3Gen_Posterior.png", plot=trend_3Gen_plot, 
-       device="png", dpi=300, units="in", width=7, height=4)
-
 
 # ---------------
 # Rolling 5-year windows
@@ -489,7 +459,7 @@ trend_5_yr_windows_summary <- trend_5_yr_windows %>% group_by(Year) %>%
             trend_q025 = quantile(trend,c(0.025)),
             trend_q975 = quantile(trend,c(0.975)))
 
-trend_5_yr <- ggplot()+
+trend_5_yr_plot <- ggplot()+
   geom_line(data = trend_5_yr_windows, aes(x = Year, y= trend, col = factor(samp)),alpha = 0.1)+
   scale_color_manual(values=rep("grey50",length(unique(trend_5_yr_windows$samp))), 
                      guide = "none")+
@@ -499,14 +469,82 @@ trend_5_yr <- ggplot()+
               linetype = 2, linewidth = 0.5)+
   geom_hline(yintercept=0) +
   scale_x_continuous(limits=c(1966,2023), breaks = seq(1970, 2020, by = 10),expand = c(0, 0))+
+  scale_y_continuous(limits = c(-20,30))+
   ylab("5-year Trend\n(% change per year)")
 
-trend_5_yr
+trend_5_yr_plot
 
-ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_trend_5_yr_windows.png", plot=trend_5_yr, 
+ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_trend_5_yr_windows.png", 
+       plot=trend_5_yr_plot, 
        device="png", dpi=300, units="cm", width=20, height=20)
 
 # Where does median cross 0 (implying change from growing to declining, or vice versa)
 trend_5_yr_windows_summary %>%
   mutate(next_trend = c(trend_med[-1],NA)) %>%
   subset(sign(trend_med) != sign(next_trend))
+
+# ---------------
+# 3-generation trend
+# ---------------
+
+# Generation Length = 11 years; COSEWIC
+t_end <- 2023
+t_start <- floor(t_end - (11*3))
+
+regional_indices_t_start <- subset(fit_samples_regional, Year == t_start)
+regional_indices_t_end <- subset(fit_samples_regional, Year == t_end)
+trend_3Gen <- data.frame(Trend = 100 * ((regional_indices_t_end$N_pred/regional_indices_t_start$N_pred)^(1/(t_end-t_start))-1))
+
+trend_label = paste0("Posterior Summary\n",round(mean(trend_3Gen$Trend),2), "% (",round(quantile(trend_3Gen$Trend,0.025),2)," to ",round(quantile(trend_3Gen$Trend,0.975),2),")\nProb(Trend > 0) = ",round(mean(trend_3Gen$Trend > 0),2))
+trend_3Gen_plot <- ggplot()+
+  geom_vline(xintercept = 0, col = "gray80", linewidth = 1)+
+  geom_density(data = trend_3Gen,aes(x = Trend), fill = "gray50", col = "transparent", alpha = 0.5)+
+  
+  xlab("3-Generation Trend")+
+  ylab("Probability Density")+
+  coord_cartesian(xlim=c(-8,8))
+
+ylim <- layer_scales(trend_3Gen_plot)$y$range$range
+
+trend_3Gen_plot <- trend_3Gen_plot +
+  geom_text(aes(x = -8, y = 0),label = trend_label, hjust = 0,vjust=-0.5, size = 3)
+trend_3Gen_plot
+
+ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_Trend_3Gen_Posterior.png", plot=trend_3Gen_plot, 
+       device="png", dpi=300, units="in", width=7, height=4)
+
+# Calculate overall percent change in population across 3 generations
+percent_change <- 100 * (regional_indices_t_end$N_pred - regional_indices_t_start$N_pred)/regional_indices_t_start$N_pred
+mean(percent_change)
+quantile(percent_change,c(0.025,0.975))
+
+# ---------------
+# Save workspace
+# ---------------
+
+save.image("../output/model_output/ATPU_wksp.RData")
+
+
+# -------------------------------------------------
+# Percent of regional population in each colony
+# -------------------------------------------------
+
+proportions <- fit_samples_colony %>%
+  group_by(samp, Year) %>%
+  mutate(prop = N_pred/sum(N_pred)) %>%
+  group_by(Colony,Year) %>%
+  summarize(prop_mean = mean(prop),
+            prop_lcl = quantile(prop,0.05),
+            prop_ucl = quantile(prop,0.95))
+
+ggplot(data = proportions,aes(x = Year, ymin = prop_lcl, ymax = prop_ucl, y = prop_mean)) + 
+  geom_ribbon(fill = "lightblue")+
+  geom_line()+
+  theme_bw()+
+  facet_wrap(Colony~.)
+
+# Proportion on largest 3 colonies
+proportions %>%
+  group_by(Year) %>%
+  summarize(prop_sum = sum(prop_mean[Colony %in% c("Great Island, NF","Gull Island, NF", "Baccalieu Island, NF")])) %>%
+  as.data.frame()
