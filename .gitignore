@@ -5,3 +5,4 @@ code/archived_code/
 output/model_output/
 *.rds
 .Rhistory
+.Rproj.user

@@ -44,7 +44,7 @@ CustomTheme <- theme_update(legend.key = element_rect(colour = NA),
 
 simulation_results <- data.frame()
 
-for (run in (1:1000)){
+for (run in 1:1000){
   
   # How variable is the "shared" component of environmental variation?
   for (sd_shared in c(0,0.1)){
@@ -52,7 +52,7 @@ for (run in (1:1000)){
     set.seed(run)
     
     # Load results that have completed so far
-    if (file.exists("../output/model_output/simulation_results.rds")) simulation_results <- readRDS("../output/model_output/simulation_results.rds")
+    if (file.exists("../output/model_output/simulation_results_new.rds")) simulation_results <- readRDS("../output/model_output/simulation_results_new.rds")
     
     # Skip this iteration, if it has already been run
     if (nrow(simulation_results) > 0 & sum(simulation_results$run == run & simulation_results$sd_shared == sd_shared)) next
@@ -88,7 +88,7 @@ for (run in (1:1000)){
       geom_line(aes(x = 1:nyears, y = colSums(N_matrix), col = "Regional Sum"),linewidth = 1)+
       geom_line(data = N_df, aes(x = Year, y = N, col = factor(Colony)))+
       theme_few()+
-      scale_y_continuous(labels = comma, trans = "log10")+
+      scale_y_continuous(labels = comma)+
       ggtitle("Simulated trajectories at each of 15 colonies")+
       ylab("Abundance")+
       xlab("Year")
@@ -159,9 +159,10 @@ for (run in (1:1000)){
       geom_point(data = subset(N_df, is.na(survey_SE)), aes(x = Year, y = SurveyCount), col = "black", pch = 1, size =5)+
       
       theme_few()+
-      facet_wrap(Colony~., scales = "free_y")+
-      scale_y_continuous(labels = comma)+
+      facet_wrap(Colony~.)+
+      scale_y_continuous(labels = comma, trans = "log10")+
       ggtitle("Simulated surveys at colonies")
+    # Print at 8x6 for appendix
     
     # ----------------------------------------------------------
     # Part 3: Fit model to simulated survey data
@@ -240,12 +241,14 @@ for (run in (1:1000)){
       
       geom_line(data = N_df, aes(x = Year, y = N, col = "True Trajectory"))+
       geom_errorbar(data = N_df, aes(x = Year, ymin = SurveyCount_lci, ymax = SurveyCount_uci), col = "black", width = 0)+
-      geom_point(data = N_df, aes(x = Year, y = SurveyCount, col = "Observed Count"))+
+      geom_point(data = N_df, aes(x = Year, y = SurveyCount), col = "black")+
+      geom_point(data = subset(N_df, is.na(survey_SE)), aes(x = Year, y = SurveyCount), col = "black", pch = 1, size =5)+
+      
       theme_few()+
       facet_wrap(Colony~.)+
       scale_y_continuous(trans="log10", labels = comma)+
       ggtitle("Simulated regional trajectory")+
-      scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
+      scale_color_manual(values = c("dodgerblue","red"), name = "")+
       ylab("Index of abundance")
     
     # ----------------------------------------------------------
@@ -293,16 +296,18 @@ for (run in (1:1000)){
       geom_ribbon(data = N_summary_regional, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
       geom_line(data = N_summary_regional, aes(x = Year, y = q50, col = "Estimate"))+
       
-      geom_point(data = regional_df, aes(x = Year, y = N))+
-      geom_line(data = regional_df,aes(x = Year, y = population_index, col = "True Trajectory"))+
+      geom_line(data = regional_df, aes(x = Year, y = N, col = "True trajectory"))+
+      geom_line(data = regional_df,aes(x = Year, y = population_index, col = "True trajectory (smoothed)"))+
       theme_few()+
       scale_y_continuous(labels = comma)+
       ggtitle("Regional trajectory")+
-      scale_color_manual(values = c("dodgerblue","black","red"), name = "")+
+      scale_color_manual(values = c("dodgerblue","red","black"), name = "")+
       ylab("Index of abundance")+
       geom_text(aes(x = 0, 
                     y = max(c(N_summary_regional$q975,N_summary_regional$N))), 
                 label = paste0("True trend = ",round(trend_true_50yr,2),"% per year\nEst trend = ",round(trend_est_50yr[2],2),"% (",round(trend_est_50yr[1],2)," to ",round(trend_est_50yr[3],2),")"), hjust=0)
+    
+    regional_plot_50yr
     
     # ----------------------------------------------------------
     # 10-year trend estimate
@@ -318,8 +323,8 @@ for (run in (1:1000)){
       geom_ribbon(data = N_summary_regional, aes(x = Year, ymin = q025, ymax = q975), alpha = 0.2, fill = "dodgerblue")+
       geom_line(data = N_summary_regional, aes(x = Year, y = q50, col = "Estimate"))+
       
-      geom_point(data = regional_df, aes(x = Year, y = N))+
-      geom_line(data = regional_df,aes(x = Year, y = population_index, col = "True Trajectory"))+
+      geom_line(data = regional_df, aes(x = Year, y = N, col = "True trajectory"))+
+      geom_line(data = regional_df,aes(x = Year, y = population_index, col = "True trajectory (smoothed)"))+
       theme_few()+
       scale_y_continuous(labels = comma)+
       ggtitle("Regional trajectory")+
@@ -332,7 +337,7 @@ for (run in (1:1000)){
     # ----------------------------------------------------------
     # Append results for this simulation run to dataframe
     # ----------------------------------------------------------
-    if (file.exists("../output/model_output/simulation_results.rds")) simulation_results <- readRDS("../output/model_output/simulation_results.rds")
+    if (file.exists("../output/model_output/simulation_results_new.rds")) simulation_results <- readRDS("../output/model_output/simulation_results_new.rds")
     
     simulation_results <- rbind(simulation_results,data.frame(run = run,
                                                               sd_shared = sd_shared,
@@ -350,14 +355,14 @@ for (run in (1:1000)){
                                                               
                                                               max_Rhat = max(out$Rhat$population_index)))
     
-    saveRDS(simulation_results, file = "../output/model_output/simulation_results.rds")
+    saveRDS(simulation_results, file = "../output/model_output/simulation_results_new.rds")
     
   }  # sd_shared
   
   # ----------------------------------------------------------
   # Plot results
   # ----------------------------------------------------------
-  simulation_results <- readRDS("../output/model_output/simulation_results.rds")
+  simulation_results <- readRDS("../output/model_output/simulation_results_new.rds")
   
   lim = range(simulation_results[,c("trend_true_50yr","trend_est_50yr_q025","trend_est_50yr_q975",
                                     "trend_true_10yr","trend_est_10yr_q025","trend_est_10yr_q975")])
@@ -392,7 +397,7 @@ for (run in (1:1000)){
 # Summarize results across repeated simulations
 # ----------------------------------------------------------
 
-simulation_results <- readRDS("../output/model_output/simulation_results.rds")
+simulation_results <- readRDS("../output/model_output/simulation_results_new.rds")
 
 # Remove runs that failed to converge
 simulation_results_converged <- subset(simulation_results, max_Rhat <= 1.05)

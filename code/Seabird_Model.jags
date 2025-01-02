@@ -75,7 +75,7 @@ model {
   # --------------------------------
   
   # priors on SE parameters
-  intercept_SE ~ dnorm(1,0.1)
+  intercept_SE ~ dnorm(0,0.1)
   slope_SE ~ dnorm(0,0.1)
   sd_SE ~ dunif(0,2)
   tau_SE <- pow(sd_SE,-2)

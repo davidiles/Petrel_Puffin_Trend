@@ -1,7 +1,4 @@
-# -------------------------------------------------
-# Load libraries
-# -------------------------------------------------
-
+# Load libraries ----
 library(tidyverse) # for data formatting and plotting
 library(readxl)    # for importing xlsx
 library(jagsUI)    # for analysis
@@ -15,9 +12,9 @@ library(ggspatial) # for maps
 
 rm(list=ls())
 
-# -------------------------------------------------
-# Define theme for plotting
-# -------------------------------------------------
+
+# Define theme for plotting ----
+
 
 CustomTheme <- theme_set(theme_bw())
 CustomTheme <- theme_update(legend.key = element_rect(colour = NA), 
@@ -38,21 +35,21 @@ CustomTheme <- theme_update(legend.key = element_rect(colour = NA),
                             axis.text.x = element_text(size=12),
                             panel.background = element_rect(fill = "white"))
 
-# -------------------------------------------------
-# Custom Functions
-# -------------------------------------------------
+
+# Custom Functions ----
+
 
 `%!in%` <- Negate(`%in%`)
 
-# -------------------------------------------------
-# Set working directory
-# -------------------------------------------------
+
+# Set working directory ----
+
 
 setwd("C:/Users/IlesD/OneDrive - EC-EC/Iles/Projects/Seabirds/Petrel_Puffin_Trend/code")
 
-# -------------------------------------------------
-# Read/modify data
-# -------------------------------------------------
+
+# Read/modify data ----
+
 
 spdat = read_xlsx("../data/LESP_ATPU_counts.xlsx", sheet = 1) %>%
   subset(Species == "ATPU") %>%
@@ -67,12 +64,15 @@ for(i in 1:nrow(spdat)){
 
 spdat <- spdat[,c("Colony_Name_For_Trends","Year","Count","SE")]
 
+# Restrict to date ranges
+spdat <- subset(spdat, Year >= 1965)
+
 # align variables with original code
 names(spdat) <- tools::toTitleCase(names(spdat))
 
-# -------------------------------------------------
-# Load colony coordinates (for ordering plots by latitude)
-# -------------------------------------------------
+
+# Load colony coordinates (for ordering plots by latitude) ----
+
 
 colony_coords <- read_xlsx("../data/LESP_ATPU_coords.xlsx", sheet = 1) %>%
   subset(Species == "ATPU")
@@ -84,15 +84,14 @@ spdat <- spdat %>%
 
 spdat$Colony <- factor(spdat$Colony, levels = unique(spdat$Colony))
 
-# -------------------------------------------------
-# Prepare data for analysis
-# -------------------------------------------------
+# Prepare data for analysis ----
 
 # Tables that link year index to actual year
 spdat$year_numeric <- spdat$Year - min(spdat$Year) + 1
 year_table = data.frame(Year = min(spdat$Year):max(spdat$Year))
 year_table$year_numeric = 1:nrow(year_table)
 
+# Choose colonies to include in analysis
 colonies_to_include = spdat %>%
   group_by(Colony) %>%
   summarize(mean_count = mean(Count),
@@ -101,19 +100,24 @@ colonies_to_include = spdat %>%
             last_survey = max(Year),
             n_surveys = length(unique(Year)),
             Latitude = mean(Latitude),
-            Longitude = mean(Longitude))
+            Longitude = mean(Longitude)) %>%
+  subset(n_surveys > 1)
 
-# Omit the smallest colonies that are strongly influencing uncertainty
-colonies_to_include = subset(colonies_to_include, mean_count > 1000)
 spdat = subset(spdat, Colony %in% colonies_to_include$Colony)
 
 # Tables that link colony numbers to colony names
 spdat$colony_numeric <- as.integer(factor(spdat$Colony))
 colony_name_table = unique(spdat[,c("Colony","colony_numeric")])
 
-# -------------------------------------------------
-# Plot raw data
-# -------------------------------------------------
+
+tmp <- colonies_to_include %>% arrange(mean_count)
+tmp$Colony <- factor(tmp$Colony, levels = tmp$Colony)
+ggplot(tmp)+
+  geom_bar(aes(y = Colony, x = mean_count), stat = "identity")+
+  scale_x_continuous(trans="log10")+
+  geom_vline(xintercept = 100, linetype = 2)
+
+# Plot raw data ----
 
 ggplot(data = spdat,aes(x = Year, y = Count))+
   geom_point()+
@@ -129,12 +133,10 @@ ggplot(data = spdat, aes(x = log(Count), y = log(SE)))+
   ggtitle("Empirical relationship between log(Count) and log(SE)") + 
   CustomTheme
 
-# -------------------------------------------------
-# Fit model
-# -------------------------------------------------
 
+# Fit model ----
 # Data for import into jags
-nknots = 6
+nknots = 12
 year <- spdat$Year - min(year_table$Year) + 1
 ymax <- max(year_table$year_numeric)
 nyears = length(1:ymax)
@@ -191,6 +193,9 @@ parameters.to.save = c(
   # Annual population indices
   "population_index",
   
+  # Simulated counts
+  "simulated_count",
+  
   # Discrepancy measures for posterior predictive checks (goodness-of-fit testing)
   "RMSE_actual",
   "RMSE_simulated",
@@ -199,31 +204,31 @@ parameters.to.save = c(
   'lambda'
 )
 
-if (!file.exists("../output/model_output/ATPU_fitted.rds")){
+if (!file.exists("../output/model_output/ATPU_fitted_new.rds")){
   
   out <- jags(data = jags_data,
               parameters.to.save = parameters.to.save,
               inits = NULL,
-              n.iter = 51000000,
+              n.iter = 11000000*2,
               n.burnin = 1000000,
-              n.thin = 50000,
+              n.thin = 1000,
               model.file = "Seabird_Model.jags",
               n.chains = 3,
               parallel = TRUE)
   
   # Save fitted model
-  saveRDS(out, file = "../output/model_output/ATPU_fitted.rds")
+  saveRDS(out, file = "../output/model_output/ATPU_fitted_new.rds")
 }
 
 # Load fitted model ----
-out <- readRDS(file = "../output/model_output/ATPU_fitted.rds")
+out <- readRDS(file = "../output/model_output/ATPU_fitted_new.rds")
 
 # How long it took to fit the model
-out$mcmc.info$elapsed.mins
+out$mcmc.info$elapsed.mins # 41 min
 
-# -------------------------------------------------
-# Model convergence
-# -------------------------------------------------
+
+# Model convergence ----
+
 
 # Which parameters have not converged?
 unlist(out$Rhat)[which(unlist(out$Rhat)>1.1)] # Fully converged
@@ -233,9 +238,9 @@ n.eff <- unlist(out$n.eff)
 n.eff <- n.eff[-which(n.eff == 1)]
 n.eff[which(n.eff < 1000)]
 
-# -------------------------------------------------
-# Goodness-of-fit assessments
-# -------------------------------------------------
+
+# Goodness-of-fit assessments ----
+
 
 # ~Posterior predictive check~
 # Calculate Bayesian p-value by comparing discrepancy measures from simulated datasets
@@ -244,7 +249,7 @@ n.eff[which(n.eff < 1000)]
 #  i.e., it produces simulated datasets that "look like" the empirical dataset)
 
 Bayesian_pval <- mean(out$sims.list$RMSE_actual > out$sims.list$RMSE_simulated) %>% round(2)
-Bayesian_pval # 0.68
+Bayesian_pval # 0.45
 
 # Plot results of Posterior predictive check: We want to see values clustered along the 1:1 line
 lim <- range(c(out$sims.list$RMSE_actual,out$sims.list$RMSE_simulated))
@@ -314,17 +319,16 @@ ObsPredPlot <- ggplot(annual_summary_colony,
   theme(axis.title.y = element_text(margin = margin(0,10,0,0),size=14),
         axis.title.x = element_text(margin = margin(10,0,0,0),size=14),
         axis.text.y = element_text(size=12),
-        axis.text.x = element_text(size=12))
+        axis.text.x = element_text(size=12))+
+  facet_wrap(Colony~.)
 
 ObsPredPlot
 
 ggsave(filename="../output/figures/goodness_of_fit/ATPU_Obs_vs_Pred.png", plot=ObsPredPlot, 
        device="png", dpi=300, units="cm", width=20, height=20)
 
-# -------------------------------------------------
-# Plot colony trajectories
-# -------------------------------------------------
 
+# Plot colony trajectories ----
 # Extract predictions of annual indices in dataframe format
 fit_samples_colony = reshape2::melt(out$sims.list$population_index) %>%
   rename(samp = Var1, year_numeric = Var2, colony_numeric = Var3, N_pred = value) %>%
@@ -337,6 +341,14 @@ annual_summary_colony = fit_samples_colony %>%
             N_q975 = quantile(N_pred,0.975))
 
 # Create plot of colony trajectories, overlaid with raw data and a symbol for whether the count had an SE
+
+# reorder the colony factor such that plotting order is by descending latitude (north to south)
+spdat <- spdat %>% arrange(desc(Latitude),Year)
+spdat$Colony <- factor(spdat$Colony, levels = unique(spdat$Colony))
+
+annual_summary_colony <- annual_summary_colony %>% mutate(Colony = factor(Colony, levels = levels(spdat$Colony)))
+fit_samples_colony <- fit_samples_colony %>% mutate(Colony = factor(Colony, levels = levels(spdat$Colony)))
+
 colony_trajectory_plot <- ggplot()+
 
   # Thick dashed line for 95% CI
@@ -356,22 +368,24 @@ colony_trajectory_plot <- ggplot()+
   geom_point(data = subset(spdat, is.na(SE)), aes(x = Year, y = Count), size = 5, shape=1)+
   
   scale_y_continuous(labels = comma)+
-  scale_x_continuous(limits=c(1966,2023), expand=c(0,0)) + 
+  scale_x_continuous(limits=c(1965,2025), expand=c(0,0)) + 
   
   scale_color_manual(values=rep("grey50",length(unique(fit_samples_colony$samp))), 
                      guide = "none")+
   
   ylab("Index of Abundance") +
-  facet_wrap(~Colony, scales = "free_y", ncol=3)
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(.~Colony, scales = "free_y", ncol=4, 
+             labeller = labeller(Colony = label_wrap_gen(width = 20)))
 
 colony_trajectory_plot
 
 ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_trajectory_colony_all_years.png", plot=colony_trajectory_plot, 
-       device="png", dpi=300, units="cm", width=30, height=25)
+       device="png", dpi=300, units="cm", width=30, height=30)
 
-# -------------------------------------------------
-# Plot regional trajectories
-# -------------------------------------------------
+
+# Plot regional trajectories ----
+
 
 fit_samples_regional = fit_samples_colony %>% 
   group_by(samp,Year) %>%
@@ -390,7 +404,7 @@ samples_to_plot <- sample(unique(fit_samples_regional$samp),1000)
 # Choose years that are considered "the most reliable" for summarizing trends
 # (i.e., the year range where surveys are available at the largest colonies)
 t_start <- min(annual_summary_colony$Year)
-t_end <- 2023
+t_end <- 2024
 
 # Choose y limits for plot
 ylim <- c(0,max(annual_summary_regional$N_q975))
@@ -424,7 +438,7 @@ regional_trajectory_plot <- ggplot()+
   #coord_cartesian(ylim = c(ylim$min/1000000,ylim$max/1000000))+
   
   scale_y_continuous(breaks = seq(0, 15, by = 1)) +
-  scale_x_continuous(limits=c(1966,2023), breaks = seq(1970, 2020, by = 10), expand = c(0, 0))+
+  scale_x_continuous(limits=c(1965,2025), breaks = seq(1970, 2020, by = 10), expand = c(0, 0))+
   coord_cartesian(ylim=ylim/1000000)+
   scale_color_manual(values=rep("grey50",length(unique(fit_samples_regional$samp))), 
                      guide = "none")+
@@ -436,14 +450,14 @@ regional_trajectory_plot
 ggsave(filename="../output/figures/trajectory_and_trend_plots/ATPU_trajectory_regional_all_years.png", plot=regional_trajectory_plot, 
        device="png", dpi=300, units="cm", width=20, height=20)
 
-# -------------------------------------------------
-# Trend analysis
-#   - summarize geometric mean rates of change across specific time intervals
-# -------------------------------------------------
 
-# ---------------
-# Rolling 5-year windows
-# ---------------
+# Trend analysis ----
+#   - summarize geometric mean rates of change across specific time intervals
+
+
+
+# Rolling 5-year windows ----
+
 
 trend_5_yr_windows <- fit_samples_regional %>%
   group_by(samp) %>%
@@ -468,7 +482,7 @@ trend_5_yr_plot <- ggplot()+
               fill = "transparent", col = "black", 
               linetype = 2, linewidth = 0.5)+
   geom_hline(yintercept=0) +
-  scale_x_continuous(limits=c(1966,2023), breaks = seq(1970, 2020, by = 10),expand = c(0, 0))+
+  scale_x_continuous(limits=c(1965,2025), breaks = seq(1970, 2020, by = 10),expand = c(0, 0))+
   scale_y_continuous(limits = c(-20,30))+
   ylab("5-year Trend\n(% change per year)")
 
@@ -483,12 +497,12 @@ trend_5_yr_windows_summary %>%
   mutate(next_trend = c(trend_med[-1],NA)) %>%
   subset(sign(trend_med) != sign(next_trend))
 
-# ---------------
-# 3-generation trend
-# ---------------
+
+# 3-generation trend ----
+
 
 # Generation Length = 11 years; COSEWIC
-t_end <- 2023
+t_end <- 2024
 t_start <- floor(t_end - (11*3))
 
 regional_indices_t_start <- subset(fit_samples_regional, Year == t_start)
@@ -518,16 +532,16 @@ percent_change <- 100 * (regional_indices_t_end$N_pred - regional_indices_t_star
 mean(percent_change)
 quantile(percent_change,c(0.025,0.975))
 
-# ---------------
-# Save workspace
-# ---------------
+
+# Save workspace ----
+
 
 save.image("../output/model_output/ATPU_wksp.RData")
 
 
-# -------------------------------------------------
-# Percent of regional population in each colony
-# -------------------------------------------------
+
+# Percent of regional population in each colony ----
+
 
 proportions <- fit_samples_colony %>%
   group_by(samp, Year) %>%
